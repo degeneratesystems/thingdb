@@ -13,6 +13,7 @@ from pathlib import Path
 
 from thingdb.db import ThingDB
 from thingdb.db import Ed25519PrivateKey
+import base64
 import json
 import secrets
 
@@ -58,6 +59,13 @@ def run_demo(num_entries: int = 200, bandwidth: int = 1024, latency: float = 0.0
         b_priv = ThingDB.generate_node_x25519()
         dst.save_node_x25519_encrypted(b_priv, str(dst_dir / "node_x25519.enc"), passphrase="node-pass")
         dst.load_node_x25519_encrypted(str(dst_dir / "node_x25519.enc"), passphrase="node-pass")
+
+        # register each node as a peer of the other so CEK envelopes include both recipients
+        # extract public bytes and register
+        src_pub = a_priv.public_key().public_bytes(encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw)
+        dst_pub = b_priv.public_key().public_bytes(encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw)
+        src.register_peer("nodeB", base64.b64encode(dst_pub).decode())
+        dst.register_peer("nodeA", base64.b64encode(src_pub).decode())
 
         # create an actor key
         actor = ThingDB.generate_actor_keypair()
