@@ -1,0 +1,18 @@
+version: '3.8'
+services:
+  nodeA:
+    build: .
+    container_name: thingdb_nodeA
+    volumes:
+      - ./nodeA:/data
+    command: "/data node-pass 5001 cert.pem key.pem"
+    ports:
+      - "5001:5001"
+  nodeB:
+    build: .
+    container_name: thingdb_nodeB
+    volumes:
+      - ./nodeB:/data
+    command: "/data node-pass 5002 cert.pem key.pem"
+    ports:
+      - "5002:5002"
