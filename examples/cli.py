@@ -15,6 +15,7 @@ Commands:
   get <thing_id>                              Show latest thing
   export                                      Print ledger lines (JSON lines)
   import-url <http://peer> [token]            Fetch ledger from peer and import (use token for auth)
+    upload-file <url> <file> [token]             Upload a file to peer in resumable chunks
   serve <network_passphrase> [port] [cert key] Run peer HTTP server
   gen-node-key                                 Generate and save node X25519 key (encrypted)
   register-peer <peer_id> <x25519_pub_b64>     Add a peer's X25519 public key
@@ -101,6 +102,39 @@ def main(argv):
         print("registered peer", pid)
 
     elif cmd == "add-token":
+        elif cmd == "upload-file":
+            if len(argv) < 6:
+                print("upload-file requires url and file path")
+                return
+            url = argv[4].rstrip("/")
+            filepath = argv[5]
+            token = argv[6] if len(argv) > 6 else None
+            headers = {"Authorization": f"Bearer {token}"} if token else {}
+            # start upload
+            r = requests.post(f"{url}/upload_start", headers=headers)
+            if r.status_code != 200:
+                print("failed to start upload", r.text)
+                return
+            upload_id = r.json().get("upload_id")
+            # send chunks
+            with open(filepath, "rb") as f:
+                idx = 0
+                while True:
+                    b = f.read(4096)
+                    if not b:
+                        break
+                    h = dict(headers)
+                    h.update({"Upload-Id": upload_id, "Chunk-Index": str(idx)})
+                    rr = requests.post(f"{url}/upload_chunk", headers=h, data=b)
+                    if rr.status_code != 200:
+                        print("chunk upload failed", rr.status_code, rr.text)
+                        return
+                    idx += 1
+            # finish
+            h = dict(headers)
+            h.update({"Upload-Id": upload_id})
+            rf = requests.post(f"{url}/upload_finish", headers=h)
+            print(rf.status_code, rf.text)
         if len(argv) < 6:
             print("add-token requires token and json_info")
             return
