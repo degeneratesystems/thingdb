@@ -146,6 +146,25 @@ sudo systemctl status actions.runner.degeneratesystems-thingdb.runner
 - **Trigger the demo:** Push an empty commit or use the Actions UI to trigger the workflow. The `docker_demo` job will be picked up by your self-hosted runner when it is online and labeled correctly.
 
 - **Security:** Revoke or rotate the PAT after registering the runner and updating secrets.
+
+**Offline & Low-bandwidth / HaLow guidance**
+
+This project is transport-agnostic: the ledger is stored as ndjson and can be transferred as files or streamed over any byte-oriented link. For operation over constrained networks (e.g., IEEE 802.11ah / HaLow) follow these recommendations:
+
+- **Batch and compress:** Use the `export_ledger_stream(chunk_size, compress=True)` helper which streams a zlib-compressed byte stream. Consume it on the peer and call `import_ledger_stream()` to reconstitute and import entries.
+- **Persistent connection:** Keep a single TCP/TLS session open when possible to avoid repeated TLS handshakes. If TCP isn't available, consider DTLS or a store-and-forward gateway.
+- **Chunking & resume:** Transfer in reasonably sized chunks (1KiB–16KiB) to limit retransmit cost and support partial resume on failure.
+- **Throttle & backoff:** On lossy/low-bandwidth links, limit sender throughput and back off on repeated failures. Our included `scripts/benchmark_halow.py` demonstrates simulated throttling.
+- **MTU & fragmentation:** Split blobs to stay within the MTU of the link and reassemble on the receiver.
+- **CPU & crypto:** AES-GCM + X25519 + Ed25519 are efficient but test on target devices. Reduce PBKDF2 iterations on constrained devices or use hardware crypto where available.
+
+Example: use the included benchmark to simulate a 1KiB/s link with 50ms latency:
+
+```bash
+python3 scripts/benchmark_halow.py -n 200 -b 1024 -l 0.05
+```
+
+If you'd like, I can add a persistent TLS streaming endpoint to the peer server and a resumable transfer protocol (simple indexed-chunk upload) next.
 Detailed usage
 --------------
 

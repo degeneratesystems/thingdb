@@ -174,6 +174,109 @@ class ThingDB:
         with self.ledger_path.open("r", encoding="utf-8") as f:
             return [l.strip() for l in f if l.strip()]
 
+    def export_ledger_stream(self, chunk_size: int = 4096, compress: bool = True):
+        """Stream the ledger as bytes in chunks. If `compress` is True the stream is zlib-compressed.
+
+        Yields bytes chunks suitable for transfer over low-bandwidth links.
+        """
+        import zlib
+
+        if not self.ledger_path.exists():
+            return
+
+        # Read the entire ledger as bytes, stream-compress it to avoid large memory spikes
+        compressor = zlib.compressobj(level=6) if compress else None
+
+        with self.ledger_path.open("rb") as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                if compressor is not None:
+                    out = compressor.compress(chunk)
+                    if out:
+                        yield out
+                else:
+                    yield chunk
+
+        if compressor is not None:
+            tail = compressor.flush()
+            if tail:
+                yield tail
+
+    def import_ledger_stream(self, chunks_iter) -> Dict[str, Any]:
+        """Consume an iterator of bytes chunks (optionally compressed) and import ledger lines.
+
+        This function attempts to detect if incoming stream is zlib-compressed by trying
+        to decompress; if that fails it will fall back to treating the stream as plain text.
+        Returns the same dict as `import_remote_lines` (counts and conflicts).
+        """
+        import zlib
+
+        # try to decompress using a decompressobj; if it fails, treat as plain
+        decomp = zlib.decompressobj()
+        buf = b""
+        lines = []
+
+        # We'll attempt to decompress and collect newline-terminated JSON lines
+        def _process_buffer(b: bytes):
+            nonlocal buf, lines
+            buf += b
+            while True:
+                idx = buf.find(b"\n")
+                if idx == -1:
+                    break
+                line = buf[:idx].strip()
+                buf = buf[idx + 1 :]
+                if line:
+                    try:
+                        lines.append(line.decode())
+                    except Exception:
+                        # ignore non-decodable parts
+                        continue
+
+        stream_failed = False
+        for chunk in chunks_iter:
+            if not isinstance(chunk, (bytes, bytearray)):
+                # skip invalid chunks
+                continue
+            if not stream_failed:
+                try:
+                    out = decomp.decompress(chunk)
+                    if out:
+                        _process_buffer(out)
+                except Exception:
+                    # not compressed or corrupted; fallback to plain-text accumulation
+                    stream_failed = True
+                    # flush any decompressor output into buffer
+                    try:
+                        tail = decomp.flush()
+                        if tail:
+                            _process_buffer(tail)
+                    except Exception:
+                        pass
+                    _process_buffer(chunk)
+            else:
+                _process_buffer(chunk)
+
+        # final decompressor tail if not failed
+        if not stream_failed:
+            try:
+                tail = decomp.flush()
+                if tail:
+                    _process_buffer(tail)
+            except Exception:
+                pass
+
+        # if there's residual data in buf that doesn't end with newline, attempt to decode
+        if buf.strip():
+            try:
+                lines.append(buf.strip().decode())
+            except Exception:
+                pass
+
+        return self.import_remote_lines(lines)
+
     def _ciphertext_hashes_set(self) -> set:
         s = set()
         for rec in self._read_ledger_records():
