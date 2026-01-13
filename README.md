@@ -87,3 +87,30 @@ Development
 - Run tests locally: `python -m pytest -q`
 
 See `examples/` for CLI and server usage, and `scripts/setup_nodes.sh` for an automated local setup.
+
+CI: Docker demo
+
+The repository includes a second CI job that attempts to run the Docker Compose demo on `ubuntu-latest` runners. It:
+
+- checks out the code
+- installs Python deps
+- runs `scripts/setup_nodes.sh` to generate `nodeA`/`nodeB` directories and certs
+- runs `docker compose build` and `docker compose up -d`
+- performs a quick smoke test against nodeA `/export`
+- tears down the compose stack
+
+Note: this attempts to run the demo on GitHub-hosted runners and may work for most cases. If you require more control (custom networking, privileged mounts, long-lived volumes), use a self-hosted runner.
+
+Self-hosted runner setup
+
+If you want the CI to run the full Docker Compose demo on your own hardware (recommended for repeatable demos), register a self-hosted runner for this repo and run the `./.github/self-hosted/runner-setup.sh` helper on that host.
+
+1. Create a registration token: go to the repo Settings → Actions → Runners → New self-hosted runner → Follow instructions, copy the registration token.
+2. Edit `./.github/self-hosted/runner-setup.sh`: set `REPO="OWNER/thingdb"` and `TOKEN="<REGISTRATION_TOKEN>"`.
+3. Run the script as root on the runner host:
+
+```bash
+sudo bash ./.github/self-hosted/runner-setup.sh
+```
+
+After the runner is online, GitHub Actions will be able to schedule the `docker_demo` job on it.
