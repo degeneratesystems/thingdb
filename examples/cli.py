@@ -14,6 +14,8 @@ Commands:
   put <thing_id> <json_data>                  Store/update a thing
   get <thing_id>                              Show latest thing
   export                                      Print ledger lines (JSON lines)
+    export-stream <out_file> [--no-compress]    Export ledger as compressed byte stream to file
+    import-stream <in_file> [token]             Import ledger from a byte-stream file (compressed or plain)
   import-url <http://peer> [token]            Fetch ledger from peer and import (use token for auth)
   serve <network_passphrase> [port] [cert key] Run peer HTTP server
   gen-node-key                                 Generate and save node X25519 key (encrypted)
@@ -61,6 +63,33 @@ def main(argv):
     elif cmd == "export":
         for l in db.export_ledger_lines():
             print(l)
+
+    elif cmd == "export-stream":
+        if len(argv) < 5:
+            print("export-stream requires output path")
+            return
+        outp = argv[4]
+        no_comp = (len(argv) > 5 and argv[5] == "--no-compress")
+        with open(outp, "wb") as f:
+            for chunk in db.export_ledger_stream(chunk_size=4096, compress=not no_comp):
+                f.write(chunk)
+        print("wrote", outp)
+
+    elif cmd == "import-stream":
+        if len(argv) < 5:
+            print("import-stream requires input path")
+            return
+        inp = argv[4]
+        token = argv[5] if len(argv) > 5 else None
+        def file_chunks():
+            with open(inp, "rb") as f:
+                while True:
+                    b = f.read(4096)
+                    if not b:
+                        break
+                    yield b
+        res = db.import_ledger_stream(file_chunks())
+        print(res)
 
     elif cmd == "import-url":
         if len(argv) < 5:

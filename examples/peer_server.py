@@ -43,6 +43,19 @@ def export_ledger():
     return jsonify(lines)
 
 
+@app.route("/export_stream", methods=["GET"])
+def export_stream():
+    # stream compressed ledger bytes (zlib) to client
+    compress = request.args.get("compress", "1") != "0"
+
+    def generate():
+        for chunk in _db.export_ledger_stream(chunk_size=4096, compress=compress):
+            yield chunk
+
+    # application/octet-stream is fine; consumer should know whether it's compressed
+    return app.response_class(generate(), mimetype="application/octet-stream")
+
+
 @app.route("/import", methods=["POST"])
 def import_ledger():
     # simple token auth
@@ -59,6 +72,30 @@ def import_ledger():
     if not isinstance(payload, list):
         return jsonify({"error": "expected list of lines"}), 400
     res = _db.import_remote_lines(payload)
+    return jsonify(res)
+
+
+@app.route("/import_stream", methods=["POST"])
+def import_stream():
+    # simple token auth
+    auth = request.headers.get("Authorization", "")
+    token = None
+    if auth.startswith("Bearer "):
+        token = auth.split(" ", 1)[1]
+    info = _db.verify_token(token) if token else None
+    if not info or "import" not in info.get("scopes", []):
+        return jsonify({"error": "unauthorized or insufficient scope"}), 401
+
+    # stream the incoming bytes in chunks to the db importer
+    def chunks():
+        # Flask provides request.stream as a file-like
+        while True:
+            b = request.stream.read(4096)
+            if not b:
+                break
+            yield b
+
+    res = _db.import_ledger_stream(chunks())
     return jsonify(res)
 
 
