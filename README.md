@@ -103,6 +103,11 @@ Note: this attempts to run the demo on GitHub-hosted runners and may work for mo
 
 Self-hosted runner setup
 
+If you require more control (custom networking, privileged mounts, long-lived volumes), use a self-hosted runner.
+
+Self-hosted runner setup
+------------------------
+
 If you want the CI to run the full Docker Compose demo on your own hardware (recommended for repeatable demos), register a self-hosted runner for this repo and run the `./.github/self-hosted/runner-setup.sh` helper on that host.
 
 1. Create a registration token: go to the repo Settings → Actions → Runners → New self-hosted runner → Follow instructions, copy the registration token.
@@ -115,6 +120,32 @@ sudo bash ./.github/self-hosted/runner-setup.sh
 
 After the runner is online, GitHub Actions will be able to schedule the `docker_demo` job on it.
 
+**Self-hosted Runner / docker_demo**
+
+- **Purpose:** The `docker_demo` job in `.github/workflows/ci.yml` runs the two-node Docker Compose demo. For security and resource reasons it is configured to run on a self-hosted runner.
+- **Register a runner:** On the machine that will host the runner, run:
+
+```bash
+# replace <PAT> with a short-lived personal access token (revoke/rotate afterwards)
+GITHUB_TOKEN=<PAT> REPO=degeneratesystems/thingdb bash scripts/register-runner-auto.sh
+```
+
+- **Start the runner:** The register script creates an install directory and helper scripts; then either install and start the system service or run the runner directly from that directory:
+
+```bash
+# if the script created a systemd unit
+sudo systemctl start actions.runner.degeneratesystems-thingdb.runner
+sudo systemctl status actions.runner.degeneratesystems-thingdb.runner
+# or from the runner dir
+./svc.sh install
+./svc.sh start
+```
+
+- **Add CI secrets:** Use the helper or `gh` to add secrets required by the workflow (example shown in `scripts/gh-set-secret.sh`).
+
+- **Trigger the demo:** Push an empty commit or use the Actions UI to trigger the workflow. The `docker_demo` job will be picked up by your self-hosted runner when it is online and labeled correctly.
+
+- **Security:** Revoke or rotate the PAT after registering the runner and updating secrets.
 Detailed usage
 --------------
 
