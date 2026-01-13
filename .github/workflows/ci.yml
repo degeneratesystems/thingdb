@@ -24,7 +24,7 @@ jobs:
           python -m pytest -q
 
   docker_demo:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: test
     steps:
       - uses: actions/checkout@v4
