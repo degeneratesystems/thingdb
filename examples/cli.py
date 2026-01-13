@@ -21,6 +21,7 @@ Commands:
   gen-node-key                                 Generate and save node X25519 key (encrypted)
   register-peer <peer_id> <x25519_pub_b64>     Add a peer's X25519 public key
   add-token <token> <json_info>                Add API token
+    upload-file <url> <file> [token]             Upload a file to peer in resumable chunks
 """
 
 
@@ -137,6 +138,53 @@ def main(argv):
         info = json.loads(argv[5])
         db.add_token(token, info)
         print("added token")
+
+    elif cmd == "upload-file":
+        if len(argv) < 6:
+            print("upload-file requires url and file path")
+            return
+        url = argv[4].rstrip("/")
+        filepath = argv[5]
+        token = argv[6] if len(argv) > 6 else None
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        # check existing chunks
+        r = requests.get(f"{url}/upload_status", params={"upload_id": None}, headers=headers)
+        # start upload session
+        rs = requests.post(f"{url}/upload_start", headers=headers)
+        if rs.status_code != 200:
+            print("failed to start upload", rs.text)
+            return
+        upload_id = rs.json().get("upload_id")
+        # query status to find already uploaded chunks
+        r = requests.get(f"{url}/upload_status", params={"upload_id": upload_id}, headers=headers)
+        existing = set(r.json().get("chunks", [])) if r.status_code == 200 else set()
+        # send chunks with verification
+        with open(filepath, "rb") as f:
+            idx = 0
+            while True:
+                b = f.read(4096)
+                if not b:
+                    break
+                if idx in existing:
+                    idx += 1
+                    continue
+                h = dict(headers)
+                h.update({"Upload-Id": upload_id, "Chunk-Index": str(idx)})
+                rr = requests.post(f"{url}/upload_chunk", headers=h, data=b)
+                if rr.status_code != 200:
+                    print("chunk upload failed", rr.status_code, rr.text)
+                    return
+                resp = rr.json()
+                import hashlib
+                if resp.get("sha256") and resp.get("sha256") != hashlib.sha256(b).hexdigest():
+                    print("checksum mismatch for chunk", idx)
+                    return
+                idx += 1
+        # finish
+        h = dict(headers)
+        h.update({"Upload-Id": upload_id})
+        rf = requests.post(f"{url}/upload_finish", headers=h)
+        print(rf.status_code, rf.text)
 
     else:
         print("unknown command")
