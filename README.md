@@ -322,3 +322,21 @@ Notes:
 - Do not store long-lived PATs with excessive scopes. Create tokens with minimum privileges.
 - If you need to store a Docker registry credential, use `DOCKERHUB_USERNAME` and `DOCKERHUB_PASSWORD` (or the equivalent for your registry) and reference them in workflows as `secrets.DOCKERHUB_USERNAME`.
 
+
+## Uploads: limits and cleanup
+
+- Per-token controls: tokens may carry keys `max_uploads`, `max_chunk_size`, and `max_upload_size`. Defaults: `max_uploads=5`, `max_chunk_size=65536`, `max_upload_size=10485760`.
+- Server-side expiry: incomplete uploads are removed after `THINGDB_UPLOAD_EXPIRY` seconds (default 86400). Cleanup runs opportunistically on `upload_start` and via the admin endpoint.
+- Admin endpoint: `POST /admin/cleanup_uploads` (requires an admin-scoped token) accepts JSON `{"expire_seconds": 3600}` and returns `{"removed": [...upload_ids...]}`.
+
+Client-side: use the existing resumable upload flow (`/upload_start`, `/upload_status`, `/upload_chunk`, `/upload_finish`) — servers now validate per-chunk size and per-upload totals and will return HTTP 413 for violations.
+
+
+## Uploads: limits and cleanup
+
+- Per-token controls: tokens may carry keys `max_uploads`, `max_chunk_size`, and `max_upload_size`. Defaults: `max_uploads=5`, `max_chunk_size=65536`, `max_upload_size=10485760`.
+- Server-side expiry: incomplete uploads are removed after `THINGDB_UPLOAD_EXPIRY` seconds (default 86400). Cleanup runs opportunistically on `upload_start` and via the admin endpoint.
+- Admin endpoint: `POST /admin/cleanup_uploads` (requires an admin-scoped token) accepts JSON `{"expire_seconds": 3600}` and returns `{"removed": [...upload_ids...]}`.
+
+Client-side: use the existing resumable upload flow (`/upload_start`, `/upload_status`, `/upload_chunk`, `/upload_finish`) — servers now validate per-chunk size and per-upload totals and will return HTTP 413 for violations.
+
