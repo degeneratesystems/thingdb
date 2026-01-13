@@ -227,3 +227,34 @@ Support and contribution
 - See `CONTRIBUTING.md` for workflow and PR guidance.
 - For security reports, use `SECURITY.md` guidelines.
 
+Adding CI secrets
+------------------
+
+Most CI/automation credentials (docker registries, cloud API keys, deploy tokens) should be stored as GitHub Actions Secrets rather than embedded in the repository. You can add secrets via the GitHub web UI or using the `gh` CLI.
+
+Web UI:
+
+1. Go to your repository on GitHub: Settings → Secrets and variables → Actions → New repository secret.
+2. Enter the secret name (e.g. `DOCKERHUB_USERNAME`) and its value, then Save.
+
+Using the `gh` CLI (recommended for automation):
+
+1. Install and authenticate `gh` (https://cli.github.com/).
+2. Use the helper script included in this repo to set a secret:
+
+```bash
+# interactive: will prompt for value
+./scripts/gh-set-secret.sh degeneratesystems thingdb MY_SECRET
+
+# non-interactive (read value from env variable)
+export SECRET_VALUE='sensitive-value'
+./scripts/gh-set-secret.sh degeneratesystems thingdb MY_SECRET --env SECRET_VALUE
+
+# or read from file
+./scripts/gh-set-secret.sh degeneratesystems thingdb MY_SECRET --file /path/to/value.txt
+```
+
+Notes:
+- Do not store long-lived PATs with excessive scopes. Create tokens with minimum privileges.
+- If you need to store a Docker registry credential, use `DOCKERHUB_USERNAME` and `DOCKERHUB_PASSWORD` (or the equivalent for your registry) and reference them in workflows as `secrets.DOCKERHUB_USERNAME`.
+
