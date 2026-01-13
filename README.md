@@ -114,3 +114,116 @@ sudo bash ./.github/self-hosted/runner-setup.sh
 ```
 
 After the runner is online, GitHub Actions will be able to schedule the `docker_demo` job on it.
+
+Detailed usage
+--------------
+
+This section gives step-by-step commands and examples to run the project locally, run the two-node TLS demo, and run the Docker Compose demo.
+
+Prerequisites
+- Python 3.10+
+- pip
+- (For Docker/demo) Docker and Docker Compose installed locally
+
+Install dependencies
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Run tests
+
+```bash
+python -m pytest -q
+```
+
+Single-node demo (quick)
+
+```bash
+# Run the demo which creates keys and writes a sample thing
+PYTHONPATH=. python3 examples/run_demo.py /tmp/mydb "my strong passphrase"
+```
+
+Two-node TLS demo (local, step-by-step)
+
+1) Prepare nodes (creates `nodeA` and `nodeB` directories with keys and self-signed TLS certs):
+
+```bash
+./scripts/setup_nodes.sh
+```
+
+2) Start peer servers (each in its own terminal or background):
+
+```bash
+# nodeA
+PYTHONPATH=. python3 examples/peer_server.py ./nodeA node-pass 5001 ./nodeA/cert.pem ./nodeA/key.pem &
+# nodeB
+PYTHONPATH=. python3 examples/peer_server.py ./nodeB node-pass 5002 ./nodeB/cert.pem ./nodeB/key.pem &
+```
+
+3) Add API token to nodeA (imports require token with `import` scope):
+
+```bash
+PYTHONPATH=. python3 examples/cli.py ./nodeA node-pass add-token demo-import-token '{"name":"demo","scopes":["import"]}'
+```
+
+4) Register peers (so CEK is wrapped to recipients when writing entries):
+
+```bash
+# from nodeB register nodeA's X25519 public key (copy from ./nodeA/node_x25519.pub created by setup script)
+PYTHONPATH=. python3 examples/cli.py ./nodeB node-pass register-peer nodeA $(cat ./nodeA/node_x25519.pub)
+```
+
+5) Create an entry on nodeB and push to nodeA:
+
+```bash
+# write entry to nodeB
+PYTHONPATH=. python3 examples/cli.py ./nodeB node-pass put thing-online '{"value":999}'
+
+# export nodeB ledger lines (JSON array) and POST to nodeA import endpoint
+PYTHONPATH=. python3 - <<'PY' > /tmp/lines.json
+from thingdb.db import ThingDB
+import json
+db = ThingDB('./nodeB','node-pass')
+print(json.dumps(db.export_ledger_lines()))
+PY
+
+curl -k -H "Authorization: Bearer demo-import-token" -X POST https://127.0.0.1:5001/import -H "Content-Type: application/json" --data-binary @/tmp/lines.json
+```
+
+Docker Compose demo (local)
+
+1) Ensure Docker and Docker Compose are installed locally.
+
+2) Run the compose demo from repository root:
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+3) Once finished, tear down:
+
+```bash
+docker compose down --volumes
+```
+
+CI and runners
+--------------
+- The GitHub Actions workflow `ci.yml` runs unit tests on GitHub-hosted `ubuntu-latest` runners.
+- The `docker_demo` job is configured to use `self-hosted` runners because Docker Compose and persistent resources are best run on your own host.
+- To register a self-hosted runner, follow the README earlier steps or run `scripts/register-runner-auto.sh` on the host (requires a repo admin PAT / registration token).
+
+Security and secrets
+--------------------
+- Do not commit private keys, tokens, or the `nodeA/` or `nodeB/` runtime directories — `.gitignore` excludes these.
+- Revoke the PAT you provided after today's session if you want to rotate credentials. Create a new PAT for future automation with the minimum required scopes (`repo`, `workflow` if needed).
+
+Support and contribution
+------------------------
+- See `CONTRIBUTING.md` for workflow and PR guidance.
+- For security reports, use `SECURITY.md` guidelines.
+
