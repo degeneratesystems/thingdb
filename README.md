@@ -147,6 +147,20 @@ sudo systemctl status actions.runner.degeneratesystems-thingdb.runner
 
 - **Security:** Revoke or rotate the PAT after registering the runner and updating secrets.
 
+**Resumable Uploads (server API + CLI)**
+
+This repository includes a resumable upload protocol to transfer ledger streams reliably over lossy or intermittent links.
+
+- **Endpoints:**
+	- `POST /upload_start` — create a new upload session; returns `{"upload_id": "..."}`.
+	- `GET /upload_status?upload_id=...` — list which chunk indices are already present on the server.
+	- `POST /upload_chunk` — upload a single chunk. Required headers: `Upload-Id`, `Chunk-Index`. The server replies with JSON `{ok:true, index:<n>, sha256:<hex>, len:<bytes>}`.
+	- `POST /upload_finish` — assemble received chunks (in sorted order) and import ledger stream.
+
+- **CLI:** Use `examples/cli.py upload-file <peer-url> <file> [token]`. The CLI will create an upload session, query existing chunks, skip already-uploaded chunks, upload missing chunks, verify per-chunk SHA256 checksums, and finish the upload.
+
+This flow is safe for poor links — if the connection dies you can re-run the same CLI command and it will resume from the last uploaded chunk.
+
 **Offline & Low-bandwidth / HaLow guidance**
 
 This project is transport-agnostic: the ledger is stored as ndjson and can be transferred as files or streamed over any byte-oriented link. For operation over constrained networks (e.g., IEEE 802.11ah / HaLow) follow these recommendations:
