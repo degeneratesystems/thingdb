@@ -103,6 +103,11 @@ Note: this attempts to run the demo on GitHub-hosted runners and may work for mo
 
 Self-hosted runner setup
 
+If you require more control (custom networking, privileged mounts, long-lived volumes), use a self-hosted runner.
+
+Self-hosted runner setup
+------------------------
+
 If you want the CI to run the full Docker Compose demo on your own hardware (recommended for repeatable demos), register a self-hosted runner for this repo and run the `./.github/self-hosted/runner-setup.sh` helper on that host.
 
 1. Create a registration token: go to the repo Settings → Actions → Runners → New self-hosted runner → Follow instructions, copy the registration token.
@@ -115,6 +120,51 @@ sudo bash ./.github/self-hosted/runner-setup.sh
 
 After the runner is online, GitHub Actions will be able to schedule the `docker_demo` job on it.
 
+**Self-hosted Runner / docker_demo**
+
+- **Purpose:** The `docker_demo` job in `.github/workflows/ci.yml` runs the two-node Docker Compose demo. For security and resource reasons it is configured to run on a self-hosted runner.
+- **Register a runner:** On the machine that will host the runner, run:
+
+```bash
+# replace <PAT> with a short-lived personal access token (revoke/rotate afterwards)
+GITHUB_TOKEN=<PAT> REPO=degeneratesystems/thingdb bash scripts/register-runner-auto.sh
+```
+
+- **Start the runner:** The register script creates an install directory and helper scripts; then either install and start the system service or run the runner directly from that directory:
+
+```bash
+# if the script created a systemd unit
+sudo systemctl start actions.runner.degeneratesystems-thingdb.runner
+sudo systemctl status actions.runner.degeneratesystems-thingdb.runner
+# or from the runner dir
+./svc.sh install
+./svc.sh start
+```
+
+- **Add CI secrets:** Use the helper or `gh` to add secrets required by the workflow (example shown in `scripts/gh-set-secret.sh`).
+
+- **Trigger the demo:** Push an empty commit or use the Actions UI to trigger the workflow. The `docker_demo` job will be picked up by your self-hosted runner when it is online and labeled correctly.
+
+- **Security:** Revoke or rotate the PAT after registering the runner and updating secrets.
+
+**Offline & Low-bandwidth / HaLow guidance**
+
+This project is transport-agnostic: the ledger is stored as ndjson and can be transferred as files or streamed over any byte-oriented link. For operation over constrained networks (e.g., IEEE 802.11ah / HaLow) follow these recommendations:
+
+- **Batch and compress:** Use the `export_ledger_stream(chunk_size, compress=True)` helper which streams a zlib-compressed byte stream. Consume it on the peer and call `import_ledger_stream()` to reconstitute and import entries.
+- **Persistent connection:** Keep a single TCP/TLS session open when possible to avoid repeated TLS handshakes. If TCP isn't available, consider DTLS or a store-and-forward gateway.
+- **Chunking & resume:** Transfer in reasonably sized chunks (1KiB–16KiB) to limit retransmit cost and support partial resume on failure.
+- **Throttle & backoff:** On lossy/low-bandwidth links, limit sender throughput and back off on repeated failures. Our included `scripts/benchmark_halow.py` demonstrates simulated throttling.
+- **MTU & fragmentation:** Split blobs to stay within the MTU of the link and reassemble on the receiver.
+- **CPU & crypto:** AES-GCM + X25519 + Ed25519 are efficient but test on target devices. Reduce PBKDF2 iterations on constrained devices or use hardware crypto where available.
+
+Example: use the included benchmark to simulate a 1KiB/s link with 50ms latency:
+
+```bash
+python3 scripts/benchmark_halow.py -n 200 -b 1024 -l 0.05
+```
+
+If you'd like, I can add a persistent TLS streaming endpoint to the peer server and a resumable transfer protocol (simple indexed-chunk upload) next.
 Detailed usage
 --------------
 
@@ -226,4 +276,35 @@ Support and contribution
 ------------------------
 - See `CONTRIBUTING.md` for workflow and PR guidance.
 - For security reports, use `SECURITY.md` guidelines.
+
+Adding CI secrets
+------------------
+
+Most CI/automation credentials (docker registries, cloud API keys, deploy tokens) should be stored as GitHub Actions Secrets rather than embedded in the repository. You can add secrets via the GitHub web UI or using the `gh` CLI.
+
+Web UI:
+
+1. Go to your repository on GitHub: Settings → Secrets and variables → Actions → New repository secret.
+2. Enter the secret name (e.g. `DOCKERHUB_USERNAME`) and its value, then Save.
+
+Using the `gh` CLI (recommended for automation):
+
+1. Install and authenticate `gh` (https://cli.github.com/).
+2. Use the helper script included in this repo to set a secret:
+
+```bash
+# interactive: will prompt for value
+./scripts/gh-set-secret.sh degeneratesystems thingdb MY_SECRET
+
+# non-interactive (read value from env variable)
+export SECRET_VALUE='sensitive-value'
+./scripts/gh-set-secret.sh degeneratesystems thingdb MY_SECRET --env SECRET_VALUE
+
+# or read from file
+./scripts/gh-set-secret.sh degeneratesystems thingdb MY_SECRET --file /path/to/value.txt
+```
+
+Notes:
+- Do not store long-lived PATs with excessive scopes. Create tokens with minimum privileges.
+- If you need to store a Docker registry credential, use `DOCKERHUB_USERNAME` and `DOCKERHUB_PASSWORD` (or the equivalent for your registry) and reference them in workflows as `secrets.DOCKERHUB_USERNAME`.
 
