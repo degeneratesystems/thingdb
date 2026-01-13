@@ -6,6 +6,8 @@ import base64
 import hashlib
 from thingdb.db import ThingDB
 from typing import List
+import secrets
+from pathlib import Path
 
 app = Flask(__name__)
 _db: ThingDB = None
@@ -96,6 +98,116 @@ def import_stream():
             yield b
 
     res = _db.import_ledger_stream(chunks())
+    return jsonify(res)
+
+
+@app.route("/upload_start", methods=["POST"])
+def upload_start():
+    auth = request.headers.get("Authorization", "")
+    token = None
+    if auth.startswith("Bearer "):
+        token = auth.split(" ", 1)[1]
+    info = _db.verify_token(token) if token else None
+    if not info or "import" not in info.get("scopes", []):
+        return jsonify({"error": "unauthorized or insufficient scope"}), 401
+
+    upload_id = secrets.token_hex(16)
+    updir = Path(_db.dir) / "uploads" / upload_id
+    updir.mkdir(parents=True, exist_ok=True)
+    return jsonify({"upload_id": upload_id})
+
+
+@app.route("/upload_status", methods=["GET"])
+def upload_status():
+    auth = request.headers.get("Authorization", "")
+    token = None
+    if auth.startswith("Bearer "):
+        token = auth.split(" ", 1)[1]
+    info = _db.verify_token(token) if token else None
+    if not info or "import" not in info.get("scopes", []):
+        return jsonify({"error": "unauthorized or insufficient scope"}), 401
+
+    upload_id = request.args.get("upload_id")
+    if not upload_id:
+        return jsonify({"error": "missing upload_id"}), 400
+    updir = Path(_db.dir) / "uploads" / upload_id
+    if not updir.exists():
+        return jsonify({"error": "upload not found"}), 404
+    chunks = [p.name for p in updir.iterdir() if p.name.endswith('.chunk')]
+    # return sorted indices
+    idxs = sorted([int(p.split('.')[0]) for p in chunks])
+    return jsonify({"chunks": idxs})
+
+
+@app.route("/upload_chunk", methods=["POST"])
+def upload_chunk():
+    auth = request.headers.get("Authorization", "")
+    token = None
+    if auth.startswith("Bearer "):
+        token = auth.split(" ", 1)[1]
+    info = _db.verify_token(token) if token else None
+    if not info or "import" not in info.get("scopes", []):
+        return jsonify({"error": "unauthorized or insufficient scope"}), 401
+
+    upload_id = request.headers.get("Upload-Id") or request.args.get("upload_id")
+    idx = request.headers.get("Chunk-Index")
+    if not upload_id or idx is None:
+        return jsonify({"error": "missing Upload-Id or Chunk-Index header"}), 400
+    try:
+        idxn = int(idx)
+    except Exception:
+        return jsonify({"error": "invalid Chunk-Index"}), 400
+
+    updir = Path(_db.dir) / "uploads" / upload_id
+    if not updir.exists():
+        return jsonify({"error": "upload not found"}), 404
+
+    chunk_path = updir / f"{idxn:08d}.chunk"
+    data = request.get_data()
+    with open(chunk_path, "wb") as f:
+        f.write(data)
+    import hashlib
+    ch = hashlib.sha256(data).hexdigest()
+    return jsonify({"ok": True, "index": idxn, "sha256": ch, "len": len(data)})
+
+
+@app.route("/upload_finish", methods=["POST"])
+def upload_finish():
+    auth = request.headers.get("Authorization", "")
+    token = None
+    if auth.startswith("Bearer "):
+        token = auth.split(" ", 1)[1]
+    info = _db.verify_token(token) if token else None
+    if not info or "import" not in info.get("scopes", []):
+        return jsonify({"error": "unauthorized or insufficient scope"}), 401
+
+    upload_id = request.headers.get("Upload-Id") or request.args.get("upload_id")
+    if not upload_id:
+        return jsonify({"error": "missing Upload-Id header"}), 400
+    updir = Path(_db.dir) / "uploads" / upload_id
+    if not updir.exists():
+        return jsonify({"error": "upload not found"}), 404
+
+    chunk_files = sorted([p for p in updir.iterdir() if p.name.endswith('.chunk')])
+
+    def file_chunks():
+        for p in chunk_files:
+            with open(p, "rb") as f:
+                while True:
+                    d = f.read(4096)
+                    if not d:
+                        break
+                    yield d
+
+    res = _db.import_ledger_stream(file_chunks())
+
+    try:
+        for p in updir.iterdir():
+            p.unlink()
+        updir.rmdir()
+    except Exception:
+        pass
+
     return jsonify(res)
 
 
