@@ -1,0 +1,15 @@
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.pyo
+*.env
+*.log
+nodeA/
+nodeB/
+*.pem
+*.enc
+ledger.ndjson
+venv/
+.vscode/
+__MACOSX/
+*.swp
